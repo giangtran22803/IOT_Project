@@ -1,12 +1,8 @@
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include "Arduino_MQTT_Client.h"
-#include "ThingsBoard.h"
 #include <Wire.h>
 #include <WiFi.h>
-#include <PubSubClient.h>
-#include <ArduinoOTA.h>
 #include "esp_wifi.h"
 #include "DHT20.h"
 #include "SHT31.h"
@@ -37,10 +33,6 @@ volatile bool ledState = false;
 
 const uint8_t PMK_KEY_STR[16] = { 't','h','e','I','o','T','P','r','o','j','e','c','t','P','M','K' };
 const uint8_t LMK_KEY_STR[16] = { 't','h','e','I','o','T','P','r','o','j','e','c','t','L','M','K' };
-
-WiFiClient wifiClient;
-Arduino_MQTT_Client mqttClient(wifiClient);
-ThingsBoard tb(mqttClient, MAX_MESSAGE_SIZE);
 
 uint8_t receiverAddress[6] = {0xF0, 0x9E, 0x9E, 0x21, 0x99, 0xB8};
 
@@ -148,8 +140,6 @@ void read_dht20(void *pvParameters){
     else{
       Serial.printf("Temperature: %f\n", temperature);
       Serial.printf("Humidity: %f\n", humidity);
-      tb.sendTelemetryData("temperature", temperature);
-      tb.sendTelemetryData("humidity", humidity);
     }
 
     vTaskDelay(6000);
@@ -175,8 +165,6 @@ void read_sht30(void *pvParameters){
     Serial.print("\t");
     Serial.print("Humidity:");
     Serial.println(sht.getHumidity(), 1);
-    tb.sendAttributeData("temperature", sht.getTemperature());
-    tb.sendAttributeData("humidity", sht.getHumidity());
     vTaskDelay(1000);
   }
 }
