@@ -118,6 +118,9 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
       Serial.println(myData[i].humidity);
       Serial.print("Light: ");
       Serial.println(myData[i].light);
+      hum = myData[i].humidity;
+      temp = myData[i].temperature;
+      light = myData[i].light;
       received[i] = true;
     }
   }
