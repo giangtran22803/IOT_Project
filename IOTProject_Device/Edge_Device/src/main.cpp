@@ -94,7 +94,7 @@ typedef struct struct_message {
     float light;
 } struct_message;
 
-struct_message myData[2];
+struct_message myData;
 bool received[2] = {false, false};
 
 void printMAC(const uint8_t * mac_addr){
@@ -109,18 +109,18 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   printMAC(mac_addr);
   for(int i = 0; i < 2; i++) {
     if (memcmp(mac_addr, senderAddress[i], 6) == 0) {
-      memcpy(&myData[i], incomingData, sizeof(struct_message));
+      memcpy(&myData, incomingData, sizeof(struct_message));
       Serial.print("Received data for counter: ");
-      Serial.println(myData[i].counter);
+      Serial.println(myData.counter);
       Serial.print("Temperature: ");
-      Serial.println(myData[i].temperature);
+      Serial.println(myData.temperature);
       Serial.print("Humidity: ");
-      Serial.println(myData[i].humidity);
+      Serial.println(myData.humidity);
       Serial.print("Light: ");
-      Serial.println(myData[i].light);
-      hum = myData[i].humidity;
-      temp = myData[i].temperature;
-      light = myData[i].light;
+      Serial.println(myData.light);
+      hum = myData.humidity;
+      temp = myData.temperature;
+      light = myData.light;
       received[i] = true;
     }
   }
@@ -195,7 +195,7 @@ void loop() {
       received[1] = false;
       i = 1;
     }
-    reconnect(myData[i].mqtt_token);
+    reconnect(myData.mqtt_token);
 
     // Read sensors
     float predictedTemperature = 0.0f;
