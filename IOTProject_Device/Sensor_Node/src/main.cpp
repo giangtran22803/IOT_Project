@@ -10,26 +10,12 @@
 #include "BH1750.h"
 #include "esp_wifi.h"
 
-#define DHTPIN 4      
-#define DHTTYPE DHT22  // Define the sensor 
-
 // DHT dht(DHTPIN, DHTTYPE);
 DHT20 dht20;
 SHT31 sht(0x44, &Wire);
 BH1750 lightSensor(0x23);
 
 #define LED_PIN 2
-
-const char* mqtt_server = "app.coreiot.io";
-const int mqtt_port = 1883;
-const char* mqtt_user = "iot_device_2";
-const char* mqtt_password = "k1iq6voc5ys3w2gatfit";
-
-constexpr uint32_t MAX_MESSAGE_SIZE = 1024U;
-
-volatile bool attributesChanged = false;
-volatile int ledMode = 0;
-volatile bool ledState = false;
 
 const uint8_t PMK_KEY_STR[16] = { 't','h','e','I','o','T','P','r','o','j','e','c','t','P','M','K' };
 const uint8_t LMK_KEY_STR[16] = { 't','h','e','I','o','T','P','r','o','j','e','c','t','L','M','K' };
