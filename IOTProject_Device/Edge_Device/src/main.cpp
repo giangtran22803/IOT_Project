@@ -55,12 +55,12 @@ TfLiteTensor* input_temperature = nullptr;
 TfLiteTensor* output_temperature = nullptr;
 
 // Humidity input buffer and first 10 counters
-float humidity_buffer[N_STEPS];
+float humidity_buffer[2][N_STEPS];
 
 int readingCountHumidity = 0;
 
 // Temperature input buffer and first 10 counters
-float temperature_buffer[N_STEPS];
+float temperature_buffer[2][N_STEPS];
 
 int readingCountTemperature = 0;
 
@@ -79,14 +79,12 @@ const unsigned long publishInterval = 2500;
 void tryConnectWiFi(const char* ssid, const char* password, const char* label);
 void reconnect(char * mqtt_token);
 void setupModel();
-float runHumidityInference();
-float runTemperatureInference();
-void updateHumidityBuffer(float new_val);
-void updateTemperatureBuffer(float new_val);
 
-uint8_t senderAddress[] = {0x10, 0x06, 0x1C, 0x41, 0xA5, 0x38};
-uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-esp_now_peer_info_t peerInfo = {};
+uint8_t senderAddress[2][6] = {
+    {0x10, 0x06, 0x1C, 0x41, 0xA5, 0x38}, // Sender address 1
+    {0xA4, 0xE5, 0x7C, 0xA5, 0xF9, 0x57}  // Sender address 2
+};
+
 
 typedef struct struct_message {
     int counter;
@@ -96,9 +94,8 @@ typedef struct struct_message {
     float light;
 } struct_message;
 
-struct_message myData;
-
-bool received = false;
+struct_message myData[2];
+bool received[2] = {false, false};
 
 void printMAC(const uint8_t * mac_addr){
   char macStr[18];
@@ -110,20 +107,37 @@ void printMAC(const uint8_t * mac_addr){
 void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) {
   Serial.print("Packet received from: ");
   printMAC(mac_addr);
-  
-  memcpy(&myData, incomingData, sizeof(myData));
-  Serial.print("Packet number: ");
-  Serial.println(myData.counter);
-  Serial.print("temperature: ");
-  Serial.println(myData.temperature);
-  Serial.print("humidity: ");
-  Serial.println(myData.humidity);
-  Serial.print("MQTT token: ");
-  Serial.println(myData.mqtt_token);
-  hum = myData.humidity;
-  temp = myData.temperature;
-  light = myData.light;
-  received = true;
+  for(int i = 0; i < 2; i++) {
+    if (memcmp(mac_addr, senderAddress[i], 6) == 0) {
+      memcpy(&myData[i], incomingData, sizeof(struct_message));
+      Serial.print("Received data for counter: ");
+      Serial.println(myData[i].counter);
+      Serial.print("Temperature: ");
+      Serial.println(myData[i].temperature);
+      Serial.print("Humidity: ");
+      Serial.println(myData[i].humidity);
+      Serial.print("Light: ");
+      Serial.println(myData[i].light);
+      received[i] = true;
+    }
+  }
+}
+
+void add_peer(const uint8_t *peer_addr, const uint8_t *lmk_key) {
+  esp_now_peer_info_t peerInfo;
+  memset(&peerInfo, 0, sizeof(peerInfo)); // Clear peerInfo structure
+  memcpy(peerInfo.peer_addr, peer_addr, 6);
+  memcpy(peerInfo.lmk, lmk_key, 16); // Local Master Key
+  peerInfo.channel = 0; 
+  peerInfo.encrypt = true;
+  peerInfo.ifidx = WIFI_IF_STA; // Use the station interface
+
+  // Add receiver as peer        
+  esp_err_t result = esp_now_add_peer(&peerInfo);
+  if (result != ESP_OK) {
+    Serial.print("Failed to add peer. Error code: ");
+    Serial.println(result);
+  }
 }
 
 void init_ESPNOW() {
@@ -146,20 +160,8 @@ void init_ESPNOW() {
     Serial.println("PMK key set successfully");
   }
 
-  memset(&peerInfo, 0, sizeof(peerInfo)); // Clear peerInfo structure
-  // Register the receiver board as peer
-  memcpy(peerInfo.peer_addr, senderAddress, 6);
-  memcpy(peerInfo.lmk, LMK_KEY_STR, 16); // Local Master Key
-  peerInfo.channel = 0; 
-  peerInfo.encrypt = true;
-  peerInfo.ifidx = WIFI_IF_STA; // Use the station interface
-
-  // Add receiver as peer        
-  esp_err_t result = esp_now_add_peer(&peerInfo);
-  if (result != ESP_OK) {
-    Serial.print("Failed to add peer. Error code: ");
-    Serial.println(result);
-  }
+  add_peer(senderAddress[0], LMK_KEY_STR); 
+  add_peer(senderAddress[1], LMK_KEY_STR); 
 
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
 }
@@ -180,20 +182,28 @@ void setup() {
 }
 
 void loop() {
-  if (received) {
-    received = false;
-    reconnect(myData.mqtt_token);
+  if (received[0] || received[1]) {
+    int i;
+    if(received[0]){
+      received[0] = false;
+      i = 0;
+    }
+    else if(received[1]){
+      received[1] = false;
+      i = 1;
+    }
+    reconnect(myData[i].mqtt_token);
 
     // Read sensors
     float predictedTemperature = 0.0f;
 
     if (readingCountTemperature < N_STEPS) {
       predictedTemperature = temp;
-      updateTemperatureBuffer(temp);
+      updateTemperatureBuffer(temp, i);
       readingCountTemperature++;
     } else {
-      updateTemperatureBuffer(temp);
-      predictedTemperature = runTemperatureInference();
+      updateTemperatureBuffer(temp, i);
+      predictedTemperature = runTemperatureInference(i);
     }
 
     //Process the humidity
@@ -201,11 +211,11 @@ void loop() {
 
     if (readingCountHumidity < N_STEPS ) {
       predictedHumidity = hum;
-      updateHumidityBuffer(hum);
+      updateHumidityBuffer(hum, i);
       readingCountHumidity++;
     } else {
-      updateHumidityBuffer(hum);
-      predictedHumidity = runHumidityInference();
+      updateHumidityBuffer(hum, i);
+      predictedHumidity = runHumidityInference(i);
     }
 
     // JSON payload
@@ -248,6 +258,7 @@ void tryConnectWiFi(const char* ssid, const char* password, const char* label) {
 
 
 void reconnect(char *mqtt_token) {
+  client.disconnect();
   while (!client.connected()) {
     Serial.print("Connecting to MQTT...");
     if (client.connect("ESP32Client", mqtt_token, NULL)) {
@@ -255,7 +266,7 @@ void reconnect(char *mqtt_token) {
     } else {
       Serial.print(" failed, rc=");
       Serial.print(client.state());
-      delay(1000);
+      delay(100);
     }
   }
 }
@@ -300,18 +311,24 @@ void setupModel() {
   output_temperature = interpreter_temperature->output(0);
 
   // Initialize buffers
-  for (int i = 0; i < N_STEPS; ++i) {
-    humidity_buffer[i] = 0.0f;
-    temperature_buffer[i] = 0.0f;
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < N_STEPS; j++) {
+      humidity_buffer[i][j] = 0.0f;
+      temperature_buffer[i][j] = 0.0f;
+    }
   }
 
   Serial.println("Models are ready.");
 }
 
 // Inference for humidity
-float runHumidityInference() {
+float runHumidityInference(int index) {
+  if (index < 0 || index >= 2) {
+    Serial.println("Invalid index for humidity buffer!");
+    return -1.0f;
+  }
   for (int i = 0; i < N_STEPS; i++) {
-    input_humidity->data.f[i] = humidity_buffer[i];
+    input_humidity->data.f[i] = humidity_buffer[index][i];
   }
   if (interpreter_humidity->Invoke() != kTfLiteOk) {
     Serial.println("Humidity inference failed!");
@@ -321,9 +338,13 @@ float runHumidityInference() {
 }
 
 // Inference for temperature
-float runTemperatureInference() {
+float runTemperatureInference(int index) {
+  if (index < 0 || index >= 2) {
+    Serial.println("Invalid index for temperature buffer!");
+    return -1.0f;
+  }
   for (int i = 0; i < N_STEPS; i++) {
-    input_temperature->data.f[i] = temperature_buffer[i];
+    input_temperature->data.f[i] = temperature_buffer[index][i];
   }
   if (interpreter_temperature->Invoke() != kTfLiteOk) {
     Serial.println("Temperature inference failed!");
@@ -332,16 +353,24 @@ float runTemperatureInference() {
   return output_temperature->data.f[0];
 }
 
-void updateHumidityBuffer(float new_val) {
-  for (int i = 0; i < N_STEPS - 1; i++) {
-    humidity_buffer[i] = humidity_buffer[i + 1];
+void updateHumidityBuffer(float new_val, int index) {
+  if (index < 0 || index >= 2) {
+    Serial.println("Invalid index for humidity buffer!");
+    return;
   }
-  humidity_buffer[N_STEPS - 1] = new_val;
+  for (int i = 0; i < N_STEPS - 1; i++) {
+    humidity_buffer[index][i] = humidity_buffer[index][i + 1];
+  }
+  humidity_buffer[index][N_STEPS - 1] = new_val;
 }
 
-void updateTemperatureBuffer(float new_val) {
-  for (int i = 0; i < N_STEPS - 1; i++) {
-    temperature_buffer[i] = temperature_buffer[i + 1];
+void updateTemperatureBuffer(float new_val, int index) {
+  if (index < 0 || index >= 2) {
+    Serial.println("Invalid index for temperature buffer!");
+    return;
   }
-  temperature_buffer[N_STEPS - 1] = new_val;
+  for (int i = 0; i < N_STEPS - 1; i++) {
+    temperature_buffer[index][i] = temperature_buffer[index][i + 1];
+  }
+  temperature_buffer[index][N_STEPS - 1] = new_val;
 }
